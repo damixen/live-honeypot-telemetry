@@ -11,6 +11,43 @@ function isValid(payload) {
     );
 }
 
+function buildKey(host_id, report_type, date) {
+    let key = null;
+    switch (report_type) {
+        case "latest":
+            key = `telemetry:latest:${host_id}`;
+            break;
+
+        case "daily":
+            key = `telemetry:daily:${host_id}:${date}`;
+            break;
+
+        default:
+            throw new Error("Unknown report_type");
+    }
+    return key;
+}
+
+function getTtlSeconds(reportType) {
+    switch (reportType) {
+        case "latest":
+            return parseInt(
+                process.env.UPSTASH_LATEST_TTL_SECONDS ?? "3600",
+                10
+            );
+
+        case "daily":
+            return parseInt(
+                process.env.UPSTASH_DAILY_TTL_SECONDS ?? "-1",
+                10
+            );
+
+        default:
+            throw new Error(`Unsupported report_type: ${reportType}`);
+    }
+}
+
+
 async function main(args) {
 
     const method = args.http.method;
@@ -19,6 +56,7 @@ async function main(args) {
     if (method === "POST") {
 
         const payload = args?.data;
+        const report_type = args?.report_type ?? "daily";
 
         const size = JSON.stringify(args).length;
 
@@ -71,11 +109,8 @@ async function main(args) {
             };
         }
 
-        const key = `stats:${payload.host_id}:${payload.date}`;
-        const ttl = Number.parseInt(
-            process.env.UPSTASH_TTL_SECONDS ?? "-1",
-            10
-        );
+        const key = buildKey(payload.host_id, report_type, payload.date);
+        const ttl = getTtlSeconds(report_type);
 
         let url =
             `${process.env.UPSTASH_URL}/set/${encodeURIComponent(key)}`;
@@ -108,24 +143,6 @@ async function main(args) {
         return {
             statusCode: 200,
             body: { ok: true, key }
-        };
-    }
-
-    // ---- TELEMETRY ----
-    if (method === "GET") {
-        if (!cache) {
-            return { statusCode: 503, body: { error: "no_data" } };
-        }
-
-        return {
-            statusCode: 200,
-            headers: {
-                "Access-Control-Allow-Origin": "*"
-            },
-            body: {
-                ...cache,
-                updated_at: updatedAt
-            }
         };
     }
 

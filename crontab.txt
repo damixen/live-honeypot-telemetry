@@ -1,0 +1,3 @@
+5 0 * * * TIME_MODE=daily OUTPUT_FILE=/home/zach/exporter/output/daily.json  /h>
+*/59 * * * * TIME_MODE=last24h OUTPUT_FILE=/home/zach/exporter/output/latest.js>
+

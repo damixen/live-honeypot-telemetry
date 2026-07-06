@@ -7,10 +7,22 @@ set -euo pipefail
 BASE_DIR="/home/zach/exporter"
 PYTHON="$BASE_DIR/.venv/bin/python"
 EXPORTER="$BASE_DIR/exporter.py"
-OUTPUT_FILE="$BASE_DIR/telemetry.json"
+OUTPUT_FILE="${OUTPUT_FILE:-$BASE_DIR/telemetry.json}"
 FUNCTION_URL="https://your-function-url/ingest"
 LOG_FILE="$BASE_DIR/export.log"
 
+case "$TIME_MODE" in
+  daily)
+    REPORT_TYPE="daily"
+    ;;
+  last24h)
+    REPORT_TYPE="latest"
+    ;;
+  *)
+    echo "Invalid TIME_MODE: $TIME_MODE"
+    exit 1
+    ;;
+esac
 
 exec >>"$LOG_FILE" 2>&1
 
@@ -41,8 +53,9 @@ echo "Pushing snapshot..."
 PAYLOAD_FILE="/tmp/telemetry_payload.json"
 
 jq -n \
+  --arg report_type "$REPORT_TYPE" \
   --slurpfile data "$OUTPUT_FILE" \
-  '{data: $data[0]}' \
+  '{data: $data[0], report_type: $report_type}' \
   > "$PAYLOAD_FILE"
 
 
