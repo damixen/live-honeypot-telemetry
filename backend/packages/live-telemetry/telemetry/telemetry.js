@@ -37,15 +37,13 @@ const corsHeaders = {
 function response(statusCode, body) {
   return {
     statusCode,
+    // DO handles CORS automatically, so we don't need to set headers here for now
     // headers: corsHeaders,
-    body
+    body,
   };
 }
 
 async function main(args) {
-
-
-
   if (args.http.method === "OPTIONS") {
     return response(200, { message: "CORS preflight" });
   }
@@ -55,7 +53,6 @@ async function main(args) {
   const date = args.date;
 
   if (!hostId) {
-    `1`
     return response(400, { error: "missing host_id" });
   }
 
@@ -89,22 +86,20 @@ async function main(args) {
       _cache: "internal-hit",
     });
   }
-  console.log(`key: ${key}`);
+
   // -------------------------
   // UPSTASH FETCH
   // -------------------------
-  const redisUrl =
-    `${process.env.UPSTASH_URL}/get/${encodeURIComponent(key)}`;
-  console.log(`Fetching from Upstash: ${redisUrl}`);
+  const redisUrl = `${process.env.UPSTASH_URL}/get/${encodeURIComponent(key)}`;
   const resp = await fetch(redisUrl, {
     headers: {
-      "Authorization": `Bearer ${process.env.UPSTASH_TOKEN}`,
-      "Content-Type": "application/json"
+      Authorization: `Bearer ${process.env.UPSTASH_TOKEN}`,
+      "Content-Type": "application/json",
     },
   });
 
   const data = await resp.json();
-  console.log(`Upstash response: ${JSON.stringify(data)}`);
+  // console.log(`Upstash response: ${JSON.stringify(data)}`);
   if (!data.result) {
     return response(404, { error: "not found" });
   }
