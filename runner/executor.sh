@@ -8,7 +8,6 @@ BASE_DIR="/home/zach/exporter"
 PYTHON="$BASE_DIR/.venv/bin/python"
 EXPORTER="$BASE_DIR/exporter.py"
 OUTPUT_FILE="${OUTPUT_FILE:-$BASE_DIR/telemetry.json}"
-FUNCTION_URL="https://your-function-url/ingest"
 LOG_FILE="$BASE_DIR/export.log"
 
 case "$TIME_MODE" in
