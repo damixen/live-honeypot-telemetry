@@ -8,7 +8,6 @@ ES_PORT = os.getenv("ES_PORT", "64298")
 ES_HOST = os.getenv("ES_HOST", f"http://localhost:{ES_PORT}")
 INDEX = os.getenv("ES_INDEX", "logstash-*")
 OUTPUT_FILE = os.getenv("OUTPUT_FILE", "./telemetry.json")
-
 TIME_MODE = os.getenv("TIME_MODE", "daily")  # daily | last24h
 TARGET_DATE = os.getenv("TARGET_DATE")  # YYYY-MM-DD (optional)
 

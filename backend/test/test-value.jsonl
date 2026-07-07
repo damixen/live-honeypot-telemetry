@@ -1,1 +1,24 @@
+{
+    "host_id": "hp-do-sfo3",
+    "mode": "daily",
+    "date": "2026-07-04",
+    "http":{
+        "method":"GET"
+    }
+}
+
+
+{
+    "http":{
+        "method":"POST"
+    },
+    "data":{
+        "host_id": "hp-do-sfo3",
+        "events":123,
+        "date":"2099-07-04"
+    },
+    "report_type":"daily"
+
+}
+
 {"updated_at": "2026-07-03T00:10:05.348516+00:00", "events_24h": 34616, "unique_ips": 477, "countries": [{"country": "Vietnam", "count": 30696}, {"country": "The Netherlands", "count": 12661}, {"country": "Singapore", "count": 6663}, {"country": "Germany", "count": 5884}, {"country": "United States", "count": 3582}, {"country": "Indonesia", "count": 1342}, {"country": "Bulgaria", "count": 1176}, {"country": "Hong Kong", "count": 1144}, {"country": "Pakistan", "count": 922}, {"country": "Brazil", "count": 743}], "protocols": [{"protocol": "ssh", "count": 26898}, {"protocol": "telnet", "count": 6414}], "honeypot_types": [{"type": "Dionaea", "count": 36179}, {"type": "Cowrie", "count": 33312}, {"type": "Tanner", "count": 1304}, {"type": "Adbhoney", "count": 521}, {"type": "Redishoneypot", "count": 194}], "sparkline": [1309, 425, 1024, 4902, 816, 1124, 1276, 5174, 1481, 6093, 3441, 4825, 4588, 4779, 5804, 985, 2820, 3427, 820, 2857, 8654, 2001, 642, 1897, 371]}

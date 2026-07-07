@@ -1,0 +1,35 @@
+parameters: {}
+environment: {}
+packages:
+    - name: live-telemetry
+      shared: false
+      environment: {}
+      parameters: {}
+      annotations: {}
+      functions:
+        - name: ingest
+          binary: false
+          main: ""
+          runtime: nodejs:22
+          web: true
+          webSecure: ${WEB_SECURE_TOKEN}
+          parameters: {}
+          environment: {
+            UPSTASH_URL: ${UPSTASH_URL},
+            UPSTASH_TOKEN: ${UPSTASH_TOKEN}
+          }
+          annotations: {}
+          limits: {}
+        - name: telemetry
+          binary: false
+          main: ""
+          runtime: nodejs:22
+          web: true
+          webSecure: false
+          parameters: {}
+          environment: {
+            UPSTASH_URL: ${UPSTASH_URL},
+            UPSTASH_TOKEN: ${UPSTASH_TOKEN}
+          }
+          annotations: {}
+          limits: {}
