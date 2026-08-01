@@ -4,7 +4,7 @@
 
 GingerPot release
 
-- Hardended input validations
+- Hardened input validations
 - Added /health function
 - Added CORS support
 
