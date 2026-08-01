@@ -34,18 +34,54 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-function response(statusCode, body) {
+function response(statusCode, body, corsHeaders = {}) {
   return {
     statusCode,
     // DO handles CORS automatically, so we don't need to set headers here for now
-    // headers: corsHeaders,
+    headers: corsHeaders,
     body,
   };
 }
 
+const allowedOrigins = [
+  "https://gingerpot.damixen.com",
+  "https://damixen.github.io",
+  "http://localhost:8080",
+];
+
+function getCorsOrigin(headers) {
+
+  if (process.env.DISABLE_CORS === "true") {
+    return "*";
+  }
+
+  const origin = headers.origin;
+
+  if (allowedOrigins.includes(origin)) {
+    return origin;
+  }
+  console.log(`Rejected CORS origin: ${origin}`);
+  return "";
+}
+
 async function main(args) {
+
+  const origin = getCorsOrigin(args.http.headers || {});
+
   if (args.http.method === "OPTIONS") {
-    return response(200, { message: "CORS preflight" });
+    return response(
+      200,
+      { message: "CORS preflight" },
+      {
+        // Limit which origin can access this endpoint.
+        "Access-Control-Allow-Origin": origin,
+        // Only allow specific HTTP methods for cross-origin calls.
+        "Access-Control-Allow-Methods": "OPTIONS, GET",
+        // Only expose required request headers.
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Vary": "Origin"
+      },
+    );
   }
 
   const hostId = args.host_id;
@@ -81,10 +117,14 @@ async function main(args) {
   // -------------------------
   const cached = getCache(cKey);
   if (cached) {
-    return response(200, {
-      ...cached,
-      _cache: "internal-hit",
-    });
+    return response(
+      200,
+      {
+        ...cached,
+        _cache: "internal-hit",
+      },
+      { "Access-Control-Allow-Origin": origin },
+    );
   }
 
   // -------------------------
@@ -111,10 +151,14 @@ async function main(args) {
   // -------------------------
   setCache(cKey, parsed);
 
-  return response(200, {
-    ...parsed,
-    _cache: "miss-upstash",
-  });
+  return response(
+    200,
+    {
+      ...parsed,
+      _cache: "miss-upstash",
+    },
+    { "Access-Control-Allow-Origin": origin },
+  );
 }
 
 module.exports = { main };

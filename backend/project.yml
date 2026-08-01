@@ -31,5 +31,6 @@ packages:
             UPSTASH_URL: ${UPSTASH_URL},
             UPSTASH_TOKEN: ${UPSTASH_TOKEN}
           }
-          annotations: {}
+          annotations:
+            web-custom-options: true
           limits: {}

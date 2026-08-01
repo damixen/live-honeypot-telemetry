@@ -3,6 +3,9 @@
     "mode": "daily",
     "date": "2026-07-04",
     "http":{
-        "method":"GET"
+        "method":"GET",
+        "headers":{
+            "origin":"https://localhost:8080"
+        }
     }
 }
