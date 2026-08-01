@@ -41,12 +41,24 @@ function getTtlSeconds(reportType) {
   }
 }
 
+const ALLOWED_HOSTS = new Set(
+  (process.env.ALLOWED_HOSTS || "hp-do-sfo3").split(",").filter(Boolean),
+);
+
 async function main(args) {
   const method = args.http.method;
 
   // ---- INGEST ----
   if (method === "POST") {
     const payload = args?.data;
+
+    if (!payload || typeof payload !== "object") {
+      return {
+        statusCode: 400,
+        body: { error: "Invalid payload" },
+      };
+    }
+
     const report_type = args?.report_type ?? "daily";
 
     const size = JSON.stringify(args).length;
@@ -100,6 +112,27 @@ async function main(args) {
       };
     }
 
+    if (!ALLOWED_HOSTS.has(payload.host_id)) {
+      return {
+        statusCode: 400,
+        body: { error: "Invalid host" },
+      };
+    }
+
+    if (!Number.isFinite(payload.events) || payload.events < 0) {
+      return {
+        statusCode: 400,
+        body: { error: "Invalid events" },
+      };
+    }
+
+    if (!["latest", "daily"].includes(report_type)) {
+      return {
+        statusCode: 400,
+        body: { error: "Invalid report type" },
+      };
+    }
+
     const key = buildKey(payload.host_id, report_type, payload.date);
     const ttl = getTtlSeconds(report_type);
 
@@ -109,25 +142,47 @@ async function main(args) {
       url += `?EX=${ttl}`;
     }
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.UPSTASH_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    const text = await response.text();
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.UPSTASH_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      const text = await response.text();
 
-    if (!response.ok) {
-      throw new Error(`Upstash returned ${response.status}`);
+      if (!response.ok) {
+        throw new Error(`Upstash returned ${response.status}`);
+      }
+
+      return {
+        statusCode: 200,
+        body: { ok: true, key },
+      };
+    } catch (err) {
+      console.error(err);
+
+      return {
+        statusCode: 503,
+        body: {
+          ok: false,
+          error: "Storage unavailable",
+        },
+      };
     }
-
-    return {
-      statusCode: 200,
-      body: { ok: true, key },
-    };
   }
 
-  return { statusCode: 404, body: { error: "not_found" } };
+  return {
+    statusCode: 405,
+    headers: {
+      Allow: "POST",
+    },
+    body: {
+      error: "method_not_allowed",
+    },
+  };
 }
+
+module.exports = { main };

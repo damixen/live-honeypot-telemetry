@@ -34,3 +34,13 @@ packages:
           annotations:
             web-custom-options: true
           limits: {}
+        - name: health
+          binary: false
+          main: ""
+          runtime: nodejs:22
+          web: true
+          webSecure: false
+          parameters: {}
+          environment: {}
+          annotations: {}
+          limits: {}

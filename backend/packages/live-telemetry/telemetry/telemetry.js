@@ -1,5 +1,12 @@
 const internalCache = new Map();
-const CACHE_TTL_MS = 30 * 1000;
+
+const DEFAULT_CACHE_TTL_SECONDS = 900;
+
+const ttlSeconds = Number(process.env.CACHE_TTL_SECONDS);
+
+const CACHE_TTL_MS = Number.isFinite(ttlSeconds)
+  ? ttlSeconds * 1000
+  : DEFAULT_CACHE_TTL_SECONDS * 1000;
 
 function cacheKey(hostId, mode, date) {
   let key = `telemetry:${mode}:${hostId}`;
@@ -22,17 +29,24 @@ function getCache(key) {
 }
 
 function setCache(key, value) {
+  if (CACHE_TTL_MS <= 0) {
+    return;
+  }
+
   internalCache.set(key, {
     value,
     expiresAt: Date.now() + CACHE_TTL_MS,
   });
 }
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+function corsHeaders(origin) {
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    Vary: "Origin",
+  };
+}
 
 function response(statusCode, body, corsHeaders = {}) {
   return {
@@ -50,7 +64,6 @@ const allowedOrigins = [
 ];
 
 function getCorsOrigin(headers) {
-
   if (process.env.DISABLE_CORS === "true") {
     return "*";
   }
@@ -64,24 +77,31 @@ function getCorsOrigin(headers) {
   return "";
 }
 
-async function main(args) {
+const allowedHosts = new Set(
+  (process.env.ALLOWED_HOSTS || "hp-do-sfo3")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean),
+);
 
+async function main(args) {
   const origin = getCorsOrigin(args.http.headers || {});
 
   if (args.http.method === "OPTIONS") {
-    return response(
-      200,
-      { message: "CORS preflight" },
-      {
-        // Limit which origin can access this endpoint.
-        "Access-Control-Allow-Origin": origin,
-        // Only allow specific HTTP methods for cross-origin calls.
-        "Access-Control-Allow-Methods": "OPTIONS, GET",
-        // Only expose required request headers.
-        "Access-Control-Allow-Headers": "Content-Type",
-        "Vary": "Origin"
+    return response(200, { message: "CORS preflight" }, corsHeaders(origin));
+  }
+
+  if (args.http.method !== "GET") {
+    return {
+      statusCode: 405,
+      headers: {
+        Allow: "GET",
+        ...corsHeaders(origin)
       },
-    );
+      body: {
+        error: "method_not_allowed",
+      },
+    };
   }
 
   const hostId = args.host_id;
@@ -90,6 +110,16 @@ async function main(args) {
 
   if (!hostId) {
     return response(400, { error: "missing host_id" });
+  }
+
+  if (!allowedHosts.has(hostId)) {
+    return response(400, { error: "invalid host_id" });
+  }
+
+  const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (mode === "daily" && !DATE_REGEX.test(date)) {
+    return response(400, { error: "invalid date" });
   }
 
   let key;
@@ -116,49 +146,58 @@ async function main(args) {
   // INTERNAL CACHE HIT
   // -------------------------
   const cached = getCache(cKey);
+
   if (cached) {
-    return response(
-      200,
-      {
+    if (process.env.DEBUG === "true") {
+      cached = {
         ...cached,
-        _cache: "internal-hit",
-      },
-      { "Access-Control-Allow-Origin": origin },
-    );
+        _cache: "miss-upstash",
+      };
+    }
+
+    return response(200, cached, corsHeaders(origin));
   }
 
   // -------------------------
   // UPSTASH FETCH
   // -------------------------
-  const redisUrl = `${process.env.UPSTASH_URL}/get/${encodeURIComponent(key)}`;
-  const resp = await fetch(redisUrl, {
-    headers: {
-      Authorization: `Bearer ${process.env.UPSTASH_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-  });
+  try {
+    const redisUrl = `${process.env.UPSTASH_URL}/get/${encodeURIComponent(key)}`;
+    const resp = await fetch(redisUrl, {
+      headers: {
+        Authorization: `Bearer ${process.env.UPSTASH_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    });
 
-  const data = await resp.json();
-  // console.log(`Upstash response: ${JSON.stringify(data)}`);
-  if (!data.result) {
-    return response(404, { error: "not found" });
+    const data = await resp.json();
+    // console.log(`Upstash response: ${JSON.stringify(data)}`);
+    if (!data.result) {
+      return response(404, { error: "not found" });
+    }
+
+    let parsed = JSON.parse(data.result);
+
+    if (process.env.DEBUG === "true") {
+      parsed = {
+        ...parsed,
+        _cache: "miss-upstash",
+      };
+    }
+
+    // -------------------------
+    // STORE INTERNAL CACHE
+    // -------------------------
+    setCache(cKey, parsed);
+
+    return response(200, parsed, corsHeaders(origin));
+  } catch (err) {
+    console.error("Upstash fetch failed", err);
+
+    return response(503, {
+      error: "telemetry unavailable",
+    });
   }
-
-  const parsed = JSON.parse(data.result);
-
-  // -------------------------
-  // STORE INTERNAL CACHE
-  // -------------------------
-  setCache(cKey, parsed);
-
-  return response(
-    200,
-    {
-      ...parsed,
-      _cache: "miss-upstash",
-    },
-    { "Access-Control-Allow-Origin": origin },
-  );
 }
 
 module.exports = { main };
