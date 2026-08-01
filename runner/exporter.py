@@ -63,6 +63,7 @@ def fetch(start, end):
 
     query = {
         "size": 0,
+        "track_total_hits": True,
         "query": {
             "bool": {
                 "filter": [
@@ -85,7 +86,6 @@ def fetch(start, end):
             }
         },
         "aggs": {
-            "events": {"value_count": {"field": "uuid.keyword"}},
             "unique_ips": {"cardinality": {"field": "src_ip.keyword"}},
             "countries": {"terms": {"field": "geoip.country_name.keyword", "size": 10}},
             "honeypot_types": {"terms": {"field": "type.keyword", "size": 5}},
@@ -117,7 +117,7 @@ def transform(resp, host, start, end, date_str, interval):
         "window_start": iso(start),
         "window_end": iso(end),
         # metrics
-        "events": aggs["events"]["value"],
+        "events": resp["hits"]["total"]["value"],
         "unique_ips": aggs["unique_ips"]["value"],
         "countries": [
             {"country": b["key"], "count": b["doc_count"]}
