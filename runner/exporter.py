@@ -93,6 +93,7 @@ def fetch(start, end):
                 "date_histogram": {"field": "@timestamp", "fixed_interval": "1h"}
             },
             "protocols": {"terms": {"field": "protocol.keyword", "size": 5}},
+            "ports": {"terms": {"field": "dest_port", "size": 5}},
         },
     }
 
@@ -127,6 +128,7 @@ def transform(resp, host, start, end, date_str, interval):
             {"protocol": b["key"], "count": b["doc_count"]}
             for b in aggs["protocols"]["buckets"]
         ],
+        "ports": [b["key"] for b in aggs["ports"]["buckets"]],
         "honeypot_types": [
             {"type": b["key"], "count": b["doc_count"]}
             for b in aggs["honeypot_types"]["buckets"]
