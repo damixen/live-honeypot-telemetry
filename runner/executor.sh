@@ -13,6 +13,7 @@ LOG_FILE="$BASE_DIR/export.log"
 case "$TIME_MODE" in
   daily)
     REPORT_TYPE="daily"
+    LOG_FILE="$BASE_DIR/export_daily.log"
     ;;
   last24h)
     REPORT_TYPE="latest"

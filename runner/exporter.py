@@ -1,8 +1,10 @@
 from elasticsearch import Elasticsearch
+from elastic_transport import ConnectionError as ESConnectionError
 from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
+import time
 
 ES_PORT = os.getenv("ES_PORT", "64298")
 ES_HOST = os.getenv("ES_HOST", f"http://localhost:{ES_PORT}")
@@ -59,7 +61,7 @@ def iso(dt):
 # ---------------------------
 # FETCH DATA
 # ---------------------------
-def fetch(start, end):
+def fetch(start, end, retries=5, base_delay=10):
 
     query = {
         "size": 0,
@@ -96,6 +98,26 @@ def fetch(start, end):
             "ports": {"terms": {"field": "dest_port", "size": 5}},
         },
     }
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"Fetching Elasticsearch data (attempt {attempt}/{retries})...")
+            return es.search(index=INDEX, body=query)
+
+        except ESConnectionError as e:
+            if attempt == retries:
+                print(
+                    f"ERROR: Elasticsearch unavailable after "
+                    f"{retries} attempts: {e}"
+                )
+                raise
+
+            delay = base_delay * (2 ** (attempt - 1))
+
+            print(f"WARNING: Elasticsearch unavailable: {e}")
+            print(f"Retrying in {delay} seconds...")
+
+            time.sleep(delay)
 
     return es.search(index=INDEX, body=query)
 
