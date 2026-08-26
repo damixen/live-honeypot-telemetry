@@ -1,4 +1,5 @@
 from elasticsearch import Elasticsearch
+from elasticsearch import ApiError
 from elastic_transport import ConnectionError as ESConnectionError
 from datetime import datetime, timedelta, timezone
 import json
@@ -106,12 +107,23 @@ def fetch(start, end, retries=5, base_delay=10):
             return es.search(index=INDEX, body=query)
 
         except ESConnectionError as e:
-            if attempt == retries:
-                print(
-                    f"ERROR: Elasticsearch unavailable after "
-                    f"{retries} attempts: {e}"
-                )
-                raise
+            retryable = True
+            error = f"connection error: {e}"
+
+        except ApiError as e:
+            retryable = e.status_code == 503
+            error = f"Elasticsearch API error {e.status_code}: {e}"
+
+        if not retryable:
+            print(f"ERROR: Non-retryable Elasticsearch error: {error}")
+            raise RuntimeError(error)
+
+        if attempt == retries:
+            print(
+                f"ERROR: Elasticsearch request failed after "
+                f"{retries} attempts: {error}"
+            )
+            raise
 
             delay = base_delay * (2 ** (attempt - 1))
 

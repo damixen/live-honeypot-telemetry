@@ -9,11 +9,13 @@ PYTHON="$BASE_DIR/.venv/bin/python"
 EXPORTER="$BASE_DIR/exporter.py"
 OUTPUT_FILE="${OUTPUT_FILE:-$BASE_DIR/telemetry.json}"
 LOG_FILE="$BASE_DIR/export.log"
+PAYLOAD_FILE="/tmp/telemetry_payload.json"
 
 case "$TIME_MODE" in
   daily)
     REPORT_TYPE="daily"
     LOG_FILE="$BASE_DIR/export_daily.log"
+    PAYLOAD_FILE="/tmp/telemetry_payload_daily.json"
     ;;
   last24h)
     REPORT_TYPE="latest"
@@ -49,8 +51,6 @@ if [[ ! -f "$OUTPUT_FILE" ]]; then
 fi
 
 echo "Pushing snapshot..."
-
-PAYLOAD_FILE="/tmp/telemetry_payload.json"
 
 jq -n \
   --arg report_type "$REPORT_TYPE" \
