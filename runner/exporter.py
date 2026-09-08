@@ -211,6 +211,26 @@ def fetch(start, end, interval, retries=5, base_delay=10):
                     "size": 5,
                 }
             },
+            "as": {
+                "terms": {
+                    "field": "geoip.asn",
+                    "size": 10,
+                },
+                "aggs": {
+                    "as_org": {
+                        "terms": {
+                            "field": "geoip.as_org.keyword",
+                            "size": 1,
+                        }
+                    },
+                    "countries": {
+                        "terms": {
+                            "field": "geoip.country_name.keyword",
+                            "size": 10,
+                        }
+                    },
+                },
+            },
         },
     }
 
@@ -218,10 +238,7 @@ def fetch(start, end, interval, retries=5, base_delay=10):
         try:
             print(f"Fetching Elasticsearch data " f"(attempt {attempt}/{retries})...")
 
-            return es.options(request_timeout=60).search(
-                index=INDEX,
-                body=query
-            )
+            return es.options(request_timeout=60).search(index=INDEX, body=query)
 
         except ESConnectionError as e:
             retryable = True
@@ -303,6 +320,25 @@ def transform(
                 "count": bucket["doc_count"],
             }
             for bucket in aggs["honeypot_types"]["buckets"]
+        ],
+        "as": [
+            {
+                "asn": bucket["key"],
+                "as_org": (
+                    bucket["as_org"]["buckets"][0]["key"]
+                    if bucket["as_org"]["buckets"]
+                    else None
+                ),
+                "events": bucket["doc_count"],
+                "countries": [
+                    {
+                        "country": country["key"],
+                        "events": country["doc_count"],
+                    }
+                    for country in bucket["countries"]["buckets"]
+                ],
+            }
+            for bucket in aggs["as"]["buckets"]
         ],
         "sparkline": [bucket["doc_count"] for bucket in aggs["sparkline"]["buckets"]],
     }
