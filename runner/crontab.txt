@@ -1,4 +1,6 @@
 5 0 * * * TIME_MODE=daily OUTPUT_FILE=/home/zach/exporter/output/daily.json   /home/zach/exporter/executor.sh
 */59 * * * * TIME_MODE=last24h OUTPUT_FILE=/home/zach/exporter/output/latest.json /home/zach/exporter/executor.sh
-
-
+# Weekly report — Monday 00:05 UTC
+5 0 * * 1 TIME_MODE=weekly OUTPUT_FILE=/home/zach/exporter/output/weekly.json /home/zach/exporter/executor.sh
+# Weekly retry — Tuesday 00:05 UTC as back-up job in case Monday fails
+5 0 * * 2 TIME_MODE=weekly OUTPUT_FILE=/home/zach/exporter/output/weekly.json /home/zach/exporter/executor.sh

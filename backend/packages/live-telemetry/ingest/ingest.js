@@ -13,6 +13,7 @@ function isValid(payload) {
 
 function buildKey(host_id, report_type, date) {
   let key = null;
+
   switch (report_type) {
     case "latest":
       key = `telemetry:latest:${host_id}`;
@@ -22,27 +23,48 @@ function buildKey(host_id, report_type, date) {
       key = `telemetry:daily:${host_id}:${date}`;
       break;
 
+    case "weekly":
+      key = `telemetry:weekly:${host_id}:${date}`;
+      break;
+
     default:
       throw new Error("Unknown report_type");
   }
+
   return key;
 }
 
 function getTtlSeconds(reportType) {
   switch (reportType) {
     case "latest":
-      return parseInt(process.env.UPSTASH_LATEST_TTL_SECONDS ?? "3600", 10);
+      return parseInt(
+        process.env.UPSTASH_LATEST_TTL_SECONDS ?? "3600",
+        10,
+      );
 
     case "daily":
-      return parseInt(process.env.UPSTASH_DAILY_TTL_SECONDS ?? "-1", 10);
+      return parseInt(
+        process.env.UPSTASH_DAILY_TTL_SECONDS ?? "-1",
+        10,
+      );
+
+    case "weekly":
+      return parseInt(
+        process.env.UPSTASH_WEEKLY_TTL_SECONDS ?? "-1",
+        10,
+      );
 
     default:
-      throw new Error(`Unsupported report_type: ${reportType}`);
+      throw new Error(
+        `Unsupported report_type: ${reportType}`,
+      );
   }
 }
 
 const ALLOWED_HOSTS = new Set(
-  (process.env.ALLOWED_HOSTS || "hp-do-sfo3").split(",").filter(Boolean),
+  (process.env.ALLOWED_HOSTS || "hp-do-sfo3")
+    .split(",")
+    .filter(Boolean),
 );
 
 async function main(args) {
@@ -88,20 +110,6 @@ async function main(args) {
       };
     }
 
-    if (
-      typeof payload.date !== "string" ||
-      payload.date.length !== 10 ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
-    ) {
-      return {
-        statusCode: 400,
-        body: {
-          ok: false,
-          error: "Invalid date",
-        },
-      };
-    }
-
     if (!isValid(payload)) {
       return {
         statusCode: 400,
@@ -126,14 +134,70 @@ async function main(args) {
       };
     }
 
-    if (!["latest", "daily"].includes(report_type)) {
+    if (!["latest", "daily", "weekly"].includes(report_type)) {
       return {
         statusCode: 400,
         body: { error: "Invalid report type" },
       };
     }
 
-    const key = buildKey(payload.host_id, report_type, payload.date);
+    // Validate report-specific date format.
+    if (
+      report_type === "latest" &&
+      (
+        typeof payload.date !== "string" ||
+        payload.date.length !== 10 ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
+      )
+    ) {
+      return {
+        statusCode: 400,
+        body: {
+          ok: false,
+          error: "Invalid date",
+        },
+      };
+    }
+
+    if (
+      report_type === "daily" &&
+      (
+        typeof payload.date !== "string" ||
+        payload.date.length !== 10 ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
+      )
+    ) {
+      return {
+        statusCode: 400,
+        body: {
+          ok: false,
+          error: "Invalid date",
+        },
+      };
+    }
+
+    if (
+      report_type === "weekly" &&
+      (
+        typeof payload.date !== "string" ||
+        !/^\d{4}-W\d{2}$/.test(payload.date)
+      )
+    ) {
+      return {
+        statusCode: 400,
+        body: {
+          ok: false,
+          error: "Invalid week",
+        },
+      };
+    }
+
+    const key = buildKey(
+      payload.host_id,
+      report_type,
+      payload.date,
+    );
+
     const ttl = getTtlSeconds(report_type);
 
     let url = `${process.env.UPSTASH_URL}/set/${encodeURIComponent(key)}`;
@@ -151,10 +215,11 @@ async function main(args) {
         },
         body: JSON.stringify(payload),
       });
-      const text = await response.text();
 
       if (!response.ok) {
-        throw new Error(`Upstash returned ${response.status}`);
+        throw new Error(
+          `Upstash returned ${response.status}`,
+        );
       }
 
       return {
