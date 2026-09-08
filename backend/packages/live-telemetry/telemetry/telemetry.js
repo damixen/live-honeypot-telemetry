@@ -107,6 +107,7 @@ async function main(args) {
   const hostId = args.host_id;
   const mode = args.mode; // latest | daily
   const date = args.date;
+  const week = args.week;
 
   if (!hostId) {
     return response(400, { error: "missing host_id" });
@@ -117,9 +118,14 @@ async function main(args) {
   }
 
   const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+  const WEEK_REGEX = /^\d{4}-W(?:0[1-9]|[1-4]\d|5[0-3])$/;
 
   if (mode === "daily" && !DATE_REGEX.test(date)) {
     return response(400, { error: "invalid date" });
+  }
+
+  if (mode === "weekly" && !WEEK_REGEX.test(week)) {
+    return response(400, { error: "invalid week" });
   }
 
   let key;
@@ -136,16 +142,22 @@ async function main(args) {
       key = cacheKey(hostId, mode, date);
       break;
 
+    case "weekly":
+      if (!week) {
+        return response(400, { error: "missing week for weekly mode" });
+      }
+      key = cacheKey(hostId, mode, week);
+      break;
+
     default:
       return response(400, { error: "invalid mode" });
   }
 
-  const cKey = cacheKey(hostId, mode, date);
 
   // -------------------------
   // INTERNAL CACHE HIT
   // -------------------------
-  const cached = getCache(cKey);
+  let cached = getCache(key);
 
   if (cached) {
     if (process.env.DEBUG === "true") {
@@ -188,7 +200,7 @@ async function main(args) {
     // -------------------------
     // STORE INTERNAL CACHE
     // -------------------------
-    setCache(cKey, parsed);
+    setCache(key, parsed);
 
     return response(200, parsed, corsHeaders(origin));
   } catch (err) {
