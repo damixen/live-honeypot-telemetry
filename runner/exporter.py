@@ -1,12 +1,13 @@
+import json
+import os
+import sys
+import time
 from elasticsearch import Elasticsearch
 from elasticsearch import ApiError
 from elastic_transport import ConnectionError as ESConnectionError
 from elastic_transport import ConnectionTimeout
 from datetime import datetime, timedelta, timezone
-import json
-import os
-import sys
-import time
+from sanitizer import sanitize_display_value
 
 ES_PORT = os.getenv("ES_PORT", "64298")
 ES_HOST = os.getenv("ES_HOST", f"http://localhost:{ES_PORT}")
@@ -231,6 +232,87 @@ def fetch(start, end, interval, retries=5, base_delay=10):
                     },
                 },
             },
+            "cowrie": {
+                "filter": {"term": {"type.keyword": "Cowrie"}},
+                "aggs": {
+                    "unique_ips": {"cardinality": {"field": "src_ip.keyword"}},
+                    "countries": {
+                        "terms": {"field": "geoip.country_name.keyword", "size": 10}
+                    },
+                    "as": {
+                        "terms": {"field": "geoip.asn", "size": 10},
+                        "aggs": {
+                            "as_org": {
+                                "terms": {"field": "geoip.as_org.keyword", "size": 1}
+                            }
+                        },
+                    },
+                    "ports": {"terms": {"field": "dest_port", "size": 10}},
+                    "event_types": {"terms": {"field": "eventid.keyword", "size": 10}},
+                    "commands": {"terms": {"field": "input.keyword", "size": 10}},
+                    "downloads": {"terms": {"field": "filename.keyword", "size": 10}},
+                    "files": {"terms": {"field": "destfile.keyword", "size": 10}},
+                    "hassh": {"terms": {"field": "hassh.keyword", "size": 10}},
+                    "credentials": {"terms": {"field": "username.keyword", "size": 10}},
+                },
+            },
+            "dionaea": {
+                "filter": {"term": {"type.keyword": "Dionaea"}},
+                "aggs": {
+                    "unique_ips": {"cardinality": {"field": "src_ip.keyword"}},
+                    "countries": {
+                        "terms": {"field": "geoip.country_name.keyword", "size": 10}
+                    },
+                    "as": {
+                        "terms": {"field": "geoip.asn", "size": 10},
+                        "aggs": {
+                            "as_org": {
+                                "terms": {
+                                    "field": "geoip.as_org.keyword",
+                                    "size": 1,
+                                }
+                            }
+                        },
+                    },
+                    "ports": {"terms": {"field": "dest_port", "size": 10}},
+                    "protocol": {
+                        "terms": {"field": "connection.protocol.keyword", "size": 10}
+                    },
+                    "credentials": {"terms": {"field": "username.keyword", "size": 10}},
+                },
+            },
+            "sentrypeer": {
+                "filter": {"term": {"type.keyword": "Sentrypeer"}},
+                "aggs": {
+                    "unique_ips": {"cardinality": {"field": "src_ip.keyword"}},
+                    "countries": {
+                        "terms": {"field": "geoip.country_name.keyword", "size": 10}
+                    },
+                    "as": {
+                        "terms": {"field": "geoip.asn", "size": 10},
+                        "aggs": {
+                            "as_org": {
+                                "terms": {"field": "geoip.as_org.keyword", "size": 1}
+                            }
+                        },
+                    },
+                    "ports": {"terms": {"field": "dest_port", "size": 10}},
+                    "sip_method": {
+                        "terms": {"field": "sip_method.keyword", "size": 10}
+                    },
+                    "sip_user_agent": {
+                        "terms": {"field": "sip_user_agent.keyword", "size": 10}
+                    },
+                    "source_numbers": {
+                        "terms": {"field": "src_ip.keyword", "size": 10},
+                        "aggs": {
+                            "unique_targets": {
+                                "cardinality": {"field": "called_number.keyword"}
+                            }
+                        },
+                    },
+                },
+            },
         },
     }
 
@@ -285,6 +367,9 @@ def transform(
     interval,
 ):
     aggs = resp["aggregations"]
+    cowrie = aggs["cowrie"]
+    dionaea = aggs["dionaea"]
+    sentrypeer = aggs["sentrypeer"]
 
     return {
         "host_id": host,
@@ -341,6 +426,183 @@ def transform(
             for bucket in aggs["as"]["buckets"]
         ],
         "sparkline": [bucket["doc_count"] for bucket in aggs["sparkline"]["buckets"]],
+        # ---------------------------
+        # COWRIE
+        # ---------------------------
+        "cowrie": {
+            "events": cowrie["doc_count"],
+            "unique_ips": cowrie["unique_ips"]["value"],
+            "countries": [
+                {
+                    "country": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["countries"]["buckets"]
+            ],
+            "as": [
+                {
+                    "asn": bucket["key"],
+                    "as_org": (
+                        sanitize_display_value(bucket["as_org"]["buckets"][0]["key"])
+                        if bucket["as_org"]["buckets"]
+                        else None
+                    ),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["as"]["buckets"]
+            ],
+            "ports": [
+                {
+                    "port": bucket["key"],
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["ports"]["buckets"]
+            ],
+            "event_types": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["event_types"]["buckets"]
+            ],
+            "commands": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["commands"]["buckets"]
+            ],
+            "downloads": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["downloads"]["buckets"]
+            ],
+            "files": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["files"]["buckets"]
+            ],
+            "ssh_client_fingerprints": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["hassh"]["buckets"]
+            ],
+            "credentials": [
+                {
+                    "username": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in cowrie["credentials"]["buckets"]
+            ],
+        },
+        # ---------------------------
+        # DIONAEA
+        # ---------------------------
+        "dionaea": {
+            "events": dionaea["doc_count"],
+            "unique_ips": dionaea["unique_ips"]["value"],
+            "countries": [
+                {
+                    "country": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in dionaea["countries"]["buckets"]
+            ],
+            "as": [
+                {
+                    "asn": bucket["key"],
+                    "as_org": (
+                        sanitize_display_value(bucket["as_org"]["buckets"][0]["key"])
+                        if bucket["as_org"]["buckets"]
+                        else None
+                    ),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in dionaea["as"]["buckets"]
+            ],
+            "ports": [
+                {
+                    "port": bucket["key"],
+                    "count": bucket["doc_count"],
+                }
+                for bucket in dionaea["ports"]["buckets"]
+            ],
+            "protocol": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in dionaea["protocol"]["buckets"]
+            ],
+            "credentials": [
+                {
+                    "username": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in dionaea["credentials"]["buckets"]
+            ],
+        },
+        # ---------------------------
+        # SENTRYPEER
+        # ---------------------------
+        "sentrypeer": {
+            "events": sentrypeer["doc_count"],
+            "unique_ips": sentrypeer["unique_ips"]["value"],
+            "countries": [
+                {
+                    "country": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in sentrypeer["countries"]["buckets"]
+            ],
+            "as": [
+                {
+                    "asn": bucket["key"],
+                    "as_org": (
+                        sanitize_display_value(bucket["as_org"]["buckets"][0]["key"])
+                        if bucket["as_org"]["buckets"]
+                        else None
+                    ),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in sentrypeer["as"]["buckets"]
+            ],
+            "ports": [
+                {
+                    "port": bucket["key"],
+                    "count": bucket["doc_count"],
+                }
+                for bucket in sentrypeer["ports"]["buckets"]
+            ],
+            "sip_method": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in sentrypeer["sip_method"]["buckets"]
+            ],
+            "sip_user_agent": [
+                {
+                    "value": sanitize_display_value(bucket["key"]),
+                    "count": bucket["doc_count"],
+                }
+                for bucket in sentrypeer["sip_user_agent"]["buckets"]
+            ],
+            "source_numbers": [
+                {
+                    "source": sanitize_display_value(bucket["key"]),
+                    "events": bucket["doc_count"],
+                    "unique_targets": (bucket["unique_targets"]["value"]),
+                }
+                for bucket in sentrypeer["source_numbers"]["buckets"]
+            ],
+        },
     }
 
 
