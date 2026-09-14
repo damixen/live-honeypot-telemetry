@@ -2,12 +2,14 @@ import json
 import os
 import sys
 import time
+import re
 from elasticsearch import Elasticsearch
 from elasticsearch import ApiError
 from elastic_transport import ConnectionError as ESConnectionError
 from elastic_transport import ConnectionTimeout
 from datetime import datetime, timedelta, timezone
 from sanitizer import sanitize_display_value
+from normalizer import normalize_command
 
 ES_PORT = os.getenv("ES_PORT", "64298")
 ES_HOST = os.getenv("ES_HOST", f"http://localhost:{ES_PORT}")
@@ -191,7 +193,7 @@ def fetch(start, end, interval, retries=5, base_delay=10):
             "honeypot_types": {
                 "terms": {
                     "field": "type.keyword",
-                    "size": 5,
+                    "size": 10,
                 }
             },
             "sparkline": {
@@ -250,6 +252,14 @@ def fetch(start, end, interval, retries=5, base_delay=10):
                     "ports": {"terms": {"field": "dest_port", "size": 10}},
                     "event_types": {"terms": {"field": "eventid.keyword", "size": 10}},
                     "commands": {"terms": {"field": "input.keyword", "size": 10}},
+                    "commands_rare": {
+                        "terms": {
+                            "field": "input.keyword",
+                            "size": 100,
+                            "shard_size": 1000,
+                            "order": {"_count": "asc"},
+                        }
+                    },
                     "downloads": {"terms": {"field": "filename.keyword", "size": 10}},
                     "files": {"terms": {"field": "destfile.keyword", "size": 10}},
                     "hassh": {"terms": {"field": "hassh.keyword", "size": 10}},
@@ -356,10 +366,235 @@ def fetch(start, end, interval, retries=5, base_delay=10):
 
 
 # ---------------------------
+# FETCH LONG COWRIE COMMANDS
+# ---------------------------
+def fetch_long_commands(start, end, retries=5, base_delay=10):
+    query = {
+        "size": 100,
+        "_source": ["@timestamp", "input"],
+        "query": {
+            "bool": {
+                "filter": [
+                    {
+                        "range": {
+                            "@timestamp": {
+                                "gte": iso(start),
+                                "lt": iso(end),
+                            }
+                        }
+                    },
+                    {"term": {"type.keyword": "Cowrie"}},
+                    {"term": {"eventid.keyword": "cowrie.command.input"}},
+                    {"exists": {"field": "input"}},
+                    {"term": {"_ignored": "input.keyword"}},
+                ]
+            }
+        },
+    }
+
+    for attempt in range(1, retries + 1):
+        try:
+            print(
+                f"Fetching ignored Cowrie commands " f"(attempt {attempt}/{retries})..."
+            )
+
+            resp = es.options(request_timeout=60).search(
+                index=INDEX,
+                body=query,
+            )
+
+            commands = []
+
+            for hit in resp["hits"]["hits"]:
+                command = hit["_source"].get("input")
+
+                if command:
+                    commands.append(command)
+
+            return commands
+
+        except ESConnectionError as e:
+            retryable = True
+            error = f"connection error: {e}"
+
+        except ApiError as e:
+            retryable = e.status_code == 503
+            error = f"Elasticsearch API error {e.status_code}: {e}"
+
+        except ConnectionTimeout as e:
+            retryable = True
+            error = f"connection error: {e}"
+
+        if not retryable:
+            print(f"ERROR: Non-retryable Elasticsearch error: {error}")
+            raise RuntimeError(error)
+
+        if attempt == retries:
+            print(
+                f"ERROR: Elasticsearch request failed after "
+                f"{retries} attempts: {error}"
+            )
+            raise RuntimeError(error)
+
+        delay = base_delay * (2 ** (attempt - 1))
+
+        print(f"WARNING: Elasticsearch unavailable: {error}")
+        print(f"Retrying in {delay} seconds...")
+
+        time.sleep(delay)
+
+    raise RuntimeError("Elasticsearch request failed")
+
+
+# ---------------------------
+# BUILD COMMAND LIST
+# ---------------------------
+# def build_commands(cowrie, long_commands):
+#     commands = {}
+
+#     # ---------------------------
+#     # TOP COMMANDS
+#     # ---------------------------
+#     for bucket in cowrie["commands"]["buckets"]:
+#         original = bucket["key"]
+#         normalized = normalize_command(original)
+
+#         if normalized not in commands:
+#             commands[normalized] = {
+#                 "value": normalized,
+#                 "count": 0,
+#             }
+
+#         commands[normalized]["count"] += bucket["doc_count"]
+
+#     # ---------------------------
+#     # RARE COMMANDS
+#     # ---------------------------
+#     for bucket in cowrie["commands_rare"]["buckets"]:
+#         original = bucket["key"]
+#         normalized = normalize_command(original)
+
+#         if normalized not in commands:
+#             commands[normalized] = {
+#                 "value": normalized,
+#                 "count": bucket["doc_count"],
+#             }
+
+#     # ---------------------------
+#     # LONG COMMANDS
+#     # ---------------------------
+#     for original in long_commands:
+#         normalized = normalize_command(original)
+
+#         if normalized not in commands:
+#             commands[normalized] = {
+#                 "value": normalized,
+#                 "count": 1,
+#             }
+
+#     # ---------------------------
+#     # SORT
+#     # ---------------------------
+#     result = list(commands.values())
+
+#     result.sort(
+#         key=lambda command: command["count"],
+#         reverse=True,
+#     )
+
+#     print(f"Total unique commands: {len(result)}")
+#     print("commandsL", json.dumps(result, indent=2))
+
+#     return result[:15]
+
+
+def build_commands(cowrie, ignored_commands, limit=20, long_limit=5):
+    merged = {}
+    ignored_normalized = set()
+
+    # Normal commands
+    for command in cowrie["commands"]["buckets"]:
+        original = command["key"]
+        normalized = normalize_command(original)
+
+        if normalized not in merged:
+            merged[normalized] = {
+                "value": normalized,
+                "count": 0,
+            }
+
+        merged[normalized]["count"] += command["doc_count"]
+
+    # Rare commands
+    for command in cowrie["commands_rare"]["buckets"]:
+        original = command["key"]
+        normalized = normalize_command(original)
+
+        if normalized not in merged:
+            merged[normalized] = {
+                "value": normalized,
+                "count": 0,
+            }
+
+        merged[normalized]["count"] += command["doc_count"]
+
+    # Ignored commands
+    for original in ignored_commands:
+        normalized = normalize_command(original)
+        ignored_normalized.add(normalized)
+
+        if normalized not in merged:
+            merged[normalized] = {
+                "value": normalized,
+                "count": 0,
+            }
+
+        merged[normalized]["count"] += 1
+
+    # Most frequent commands
+    normal = sorted(
+        merged.values(),
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    # Longest ignored commands
+    long_commands = sorted(
+        [
+            command
+            for command in merged.values()
+            if command["value"] in ignored_normalized
+        ],
+        key=lambda x: len(x["value"]),
+        reverse=True,
+    )[:long_limit]
+
+    # Fill remaining slots with normal commands
+    result = [command for command in normal if command not in long_commands][
+        : limit - len(long_commands)
+    ]
+
+    # Put long commands at the end
+    result.extend(long_commands)
+
+    result = sorted(
+        result,
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    print(f"Total unique commands: {len(result)}")
+    print("commandsL", json.dumps(result, indent=2))
+
+    return result
+
+
+# ---------------------------
 # TRANSFORM
 # ---------------------------
 def transform(
     resp,
+    long_commands,
     host,
     start,
     end,
@@ -467,10 +702,10 @@ def transform(
             ],
             "commands": [
                 {
-                    "value": sanitize_display_value(bucket["key"]),
-                    "count": bucket["doc_count"],
+                    "value": sanitize_display_value(command["value"]),
+                    "count": command["count"],
                 }
-                for bucket in cowrie["commands"]["buckets"]
+                for command in build_commands(cowrie, long_commands)
             ],
             "downloads": [
                 {
@@ -637,8 +872,11 @@ def main():
 
     resp = fetch(start, end, interval)
 
+    long_commands = fetch_long_commands(start, end)
+
     data = transform(
         resp,
+        long_commands,
         host,
         start,
         end,
